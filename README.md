@@ -1,73 +1,64 @@
 # OrcaSlicer Profiles — Voron 2.4 & Trident
 
-OrcaSlicer configuration backups for two Voron printers.
+OrcaSlicer configuration backups for two Voron printers. Backed up automatically each night via `backup-orcaslicer.sh`.
 
 ## Printers
 
-| Printer | Size | Board | Nozzle |
+| Printer | Size | Toolhead board | Nozzle |
 |---|---|---|---|
-| Voron 2.4 | 350mm | SKR 1.4 + EBBCan | 0.4mm E3D Revo HF |
-| Voron Trident | 250mm | Octopus Pro + EBBCan | 0.4mm E3D Revo HF |
+| Voron 2.4 | 350mm | EBBCan + SKR 1.4 | 0.4mm E3D Revo HF |
+| Voron Trident | 250mm | EBBCan | 0.4mm E3D Revo HF |
 
-## Files
+Print hosts: `http://voron24.local` / `http://trident.local`
 
-### `Voron 2.4 350 - 0.4 nozzle.orca_printer`
-Printer bundle for the Voron 2.4 350mm. Includes:
-- Machine profile (printable area, speeds, PRINT_START gcode)
-- All filament profiles compatible with this printer
-- All process profiles
+## Profile Structure
 
-Print host: `http://voron24.local`
+```
+profiles/
+  filament/   — per-filament settings (temps, PA, flow, fan, shrinkage)
+  machine/    — printer definitions (bed size, speeds, PRINT_START gcode)
+  process/    — layer height / print quality presets
+```
 
-### `Voron Trident 250 - 0.4 nozzle.orca_printer`
-Printer bundle for the Voron Trident 250mm. Includes:
-- Machine profile (printable area, speeds, PRINT_START gcode)
-- All filament profiles compatible with this printer
-- All process profiles
+## Filament Profiles
 
-Print host: `http://trident.local`
+| Profile | Printer |
+|---|---|
+| ABS - Siraya Tech HT HF - VORON 2.4 | Voron 2.4 |
+| ABS - Siraya Tech HT HF - TRIDENT | Voron Trident |
+| ABS - Polymaker | Both |
+| ASA - Ambrosia | Both |
+| PLA - Elegoo Silk - 2.4 | Voron 2.4 |
 
-### `Generic ABS.orca_filament`
-Standalone filament profile export for all ABS variants including:
-- ABS - Siraya Tech HT HF - VORON 2.4
-- ABS - Siraya Tech HT HF - TRIDENT
-- ABS - Fusion (2.4 and Trident)
-- ABS - KVP
-- ABS - Polymaker
+## Process Profiles
 
-### `Process presets.zip`
-Standalone process profile export:
-- `0.20mm @ Voron - Master Profile - MEDIUM PARTS` — main profile for most prints
-- `0.20mm @ Voron - Master Profile - LARGE PARTS` — large prints
-- `0.15mm @ Voron - Master Profile - SMALL PARTS` — fine detail / small parts
-- `0.20mm @ Voron Parts` — Voron structural parts
+| Profile | Use |
+|---|---|
+| 0.20mm @ Voron - Master Profile - LARGE PARTS | Most prints |
+| 0.20mm @ Voron - Master Profile - MEDIUM PARTS | Medium parts |
+| 0.15mm @ Voron - Master Profile - SMALL PARTS | Fine detail / small parts |
+| 0.10mm Layer - Standard 0.25 nozzle @Voron | 0.25mm nozzle work |
 
-## Key Filament Settings — Siraya Tech HT-HF ABS
+## Key Filament Settings — Siraya Tech HT HF ABS (V2.4)
 
 | Setting | Value |
 |---|---|
 | Nozzle temp | 246°C |
-| Bed temp (first layer) | 110°C |
-| Bed temp (subsequent) | 105°C |
+| Bed temp | 110°C |
 | Flow ratio | 0.93 |
-| PA — V2.4 | 0.042 |
-| PA — Trident | 0.043 |
+| PA (static fallback) | 0.035 |
+| Adaptive PA | Enabled — 9-point model (3 speeds × 3 accels) |
 | Max volumetric speed | 14 mm³/s |
-| Fan min | 15% (always on) |
-| Fan max | 25% |
+| Fan min / max | 15% / 25% |
 | XY shrinkage | 99.4% |
 | Z shrinkage | 99.2% |
 
-## Updating
+## Backup
 
-When profiles change, export from OrcaSlicer and push:
+Profiles are synced automatically each night at 9pm by `backup-orcaslicer.sh`. To run manually:
 
 ```bash
-cd ~/orcaslicer_profiles
-# Copy new exports here
-git add .
-git commit -m "Update profiles"
-git push origin main
+"$HOME/_Claude Cowork OS/3D Printers/orcaslicer_profiles/backup-orcaslicer.sh"
 ```
 
 ## Related Repos
