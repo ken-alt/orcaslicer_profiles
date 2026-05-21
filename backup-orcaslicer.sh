@@ -1,11 +1,11 @@
 #!/bin/bash
 # backup-orcaslicer.sh
-# Syncs OrcaSlicer user profiles to ~/orcaslicer_profiles and pushes to GitHub.
+# Syncs OrcaSlicer user profiles to the workspace repo and pushes to GitHub.
 # Run manually or via launchd (com.ken.orcaslicer-backup.plist).
 
 set -euo pipefail
 
-ORCA_SOURCE="$HOME/Library/Application Support/OrcaSlicer/user"
+ORCA_SOURCE="$HOME/Library/Application Support/OrcaSlicer/user/3511669932"
 REPO="$HOME/_Claude Cowork OS/3D Printers/orcaslicer_profiles"
 LOG="$REPO/backup.log"
 
@@ -31,7 +31,7 @@ rsync -a --delete \
   --exclude='thumbnail/' \
   --exclude='*.tmp' \
   --exclude='*.lock' \
-  "$ORCA_SOURCE/" "$REPO/user/"
+  "$ORCA_SOURCE/" "$REPO/profiles/"
 
 # Commit and push only if there are changes
 cd "$REPO"

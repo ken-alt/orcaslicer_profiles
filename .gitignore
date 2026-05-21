@@ -1,6 +1,4 @@
 .DS_Store
+**/.DS_Store
 backup.log
 launchd.log
-user/**/.DS_Store
-user/default/
-user/hints.cereal
