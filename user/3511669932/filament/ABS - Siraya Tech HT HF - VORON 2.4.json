@@ -1,0 +1,153 @@
+{
+    "adaptive_pressure_advance": [
+        "1"
+    ],
+    "adaptive_pressure_advance_model": [
+        "0.030,3.79,800\n0.030,7.57,800\n0.035,11.4,800\n0.030,3.79,2000\n0.030,7.57,2000\n0.035,11.4,2000\n0.035,3.79,3500\n0.035,7.57,3500\n0.040,11.4,3500"
+    ],
+    "adaptive_pressure_advance_overhangs": [
+        "1"
+    ],
+    "close_fan_the_first_x_layers": [
+        "5"
+    ],
+    "compatible_printers": [
+        "Voron 2.4 350 - 0.25 nozzle",
+        "Voron 2.4 350 - 0.4 nozzle",
+        "Voron 2.4 350 0.15 nozzle",
+        "Voron 2.4 350 0.2 nozzle",
+        "Voron 2.4 350 0.25 nozzle",
+        "Voron 2.4 350 0.4 nozzle",
+        "Voron 2.4 350 0.5 nozzle",
+        "Voron 2.4 350 0.6 nozzle",
+        "Voron 2.4 350 0.8 nozzle",
+        "Voron 2.4 350 1.0 nozzle"
+    ],
+    "complete_print_exhaust_fan_speed": [
+        "0"
+    ],
+    "during_print_exhaust_fan_speed": [
+        "0"
+    ],
+    "enable_pressure_advance": [
+        "1"
+    ],
+    "eng_plate_temp": [
+        "110"
+    ],
+    "eng_plate_temp_initial_layer": [
+        "110"
+    ],
+    "fan_max_speed": [
+        "25"
+    ],
+    "fan_min_speed": [
+        "15"
+    ],
+    "filament_density": [
+        "1.05"
+    ],
+    "filament_deretraction_speed": [
+        "30"
+    ],
+    "filament_extruder_variant": [
+        "Direct Drive Standard"
+    ],
+    "filament_flow_ratio": [
+        "0.93"
+    ],
+    "filament_max_volumetric_speed": [
+        "14"
+    ],
+    "filament_retract_lift_enforce": [
+        "All Surfaces"
+    ],
+    "filament_retract_when_changing_layer": [
+        "0"
+    ],
+    "filament_retraction_length": [
+        "0.5"
+    ],
+    "filament_retraction_minimum_travel": [
+        "1"
+    ],
+    "filament_retraction_speed": [
+        "30"
+    ],
+    "filament_settings_id": [
+        "ABS - Siraya Tech HT HF - VORON 2.4"
+    ],
+    "filament_shrink": [
+        "99.4%"
+    ],
+    "filament_shrinkage_compensation_z": [
+        "99.2%"
+    ],
+    "filament_vendor": [
+        "Siraya Tech"
+    ],
+    "filament_wipe": [
+        "0"
+    ],
+    "filament_wipe_distance": [
+        "0.6"
+    ],
+    "filament_z_hop": [
+        "0.4"
+    ],
+    "filament_z_hop_types": [
+        "Normal Lift"
+    ],
+    "from": "User",
+    "hot_plate_temp": [
+        "110"
+    ],
+    "hot_plate_temp_initial_layer": [
+        "110"
+    ],
+    "inherits": "Generic ABS @System",
+    "internal_bridge_fan_speed": [
+        "0"
+    ],
+    "ironing_fan_speed": [
+        "0"
+    ],
+    "name": "ABS - Siraya Tech HT HF - VORON 2.4",
+    "nozzle_temperature": [
+        "246"
+    ],
+    "nozzle_temperature_initial_layer": [
+        "246"
+    ],
+    "nozzle_temperature_range_high": [
+        "260"
+    ],
+    "overhang_fan_speed": [
+        "25"
+    ],
+    "overhang_fan_threshold": [
+        "75%"
+    ],
+    "pressure_advance": [
+        "0.035"
+    ],
+    "slow_down_layer_time": [
+        "12"
+    ],
+    "slow_down_min_speed": [
+        "15"
+    ],
+    "support_material_interface_fan_speed": [
+        "0"
+    ],
+    "temperature_vitrification": [
+        "103"
+    ],
+    "textured_plate_temp": [
+        "110"
+    ],
+    "textured_plate_temp_initial_layer": [
+        "110"
+    ],
+    "version": "2.3.1.10"
+}

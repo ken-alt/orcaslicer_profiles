@@ -1,0 +1,19 @@
+{
+    "from": "User",
+    "inherits": "Voron 2.4 350 0.25 nozzle",
+    "machine_start_gcode": "PRINT_START EXTRUDER=[nozzle_temperature_initial_layer] BED=[bed_temperature_initial_layer_single] CHAMBER=[chamber_temperature]",
+    "name": "Voron 2.4 350 - 0.25 nozzle",
+    "nozzle_type": [
+        "brass"
+    ],
+    "print_host": "http://192.168.1.38",
+    "printer_extruder_id": [
+        "1"
+    ],
+    "printer_extruder_variant": [
+        "Direct Drive Standard"
+    ],
+    "printer_settings_id": "Voron 2.4 350 - 0.25 nozzle",
+    "version": "2.3.0.3",
+    "z_offset": "0.13"
+}
