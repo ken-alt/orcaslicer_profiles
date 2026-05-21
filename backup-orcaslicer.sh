@@ -6,7 +6,7 @@
 set -euo pipefail
 
 ORCA_SOURCE="$HOME/Library/Application Support/OrcaSlicer/user"
-REPO="$HOME/orcaslicer_profiles"
+REPO="$HOME/_Claude Cowork OS/3D Printers/orcaslicer_profiles"
 LOG="$REPO/backup.log"
 
 # Verify repo exists
