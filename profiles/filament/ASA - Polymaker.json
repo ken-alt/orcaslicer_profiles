@@ -1,0 +1,104 @@
+{
+    "adaptive_pressure_advance": [
+        "1"
+    ],
+    "adaptive_pressure_advance_model": [
+        ""
+    ],
+    "compatible_printers": [
+        "Voron Trident 250 - 0.4 nozzle",
+        "Voron Trident 250 0.15 nozzle",
+        "Voron Trident 250 0.2 nozzle",
+        "Voron Trident 250 0.25 nozzle",
+        "Voron Trident 250 0.4 nozzle",
+        "Voron Trident 250 0.5 nozzle",
+        "Voron Trident 250 0.6 nozzle",
+        "Voron Trident 250 0.8 nozzle",
+        "Voron Trident 250 1.0 nozzle"
+    ],
+    "enable_pressure_advance": [
+        "1"
+    ],
+    "fan_cooling_layer_time": [
+        "5"
+    ],
+    "fan_max_speed": [
+        "20"
+    ],
+    "fan_min_speed": [
+        "0"
+    ],
+    "filament_cost": [
+        "22"
+    ],
+    "filament_density": [
+        "1.13"
+    ],
+    "filament_deretraction_speed": [
+        "30"
+    ],
+    "filament_extruder_variant": [
+        "Direct Drive Standard"
+    ],
+    "filament_flow_ratio": [
+        "0.93"
+    ],
+    "filament_max_volumetric_speed": [
+        "14"
+    ],
+    "filament_retract_lift_enforce": [
+        "All Surfaces"
+    ],
+    "filament_retract_when_changing_layer": [
+        "1"
+    ],
+    "filament_retraction_length": [
+        "1"
+    ],
+    "filament_retraction_minimum_travel": [
+        "1"
+    ],
+    "filament_retraction_speed": [
+        "30"
+    ],
+    "filament_settings_id": [
+        "ASA - Polymaker"
+    ],
+    "filament_vendor": [
+        "Polymaker"
+    ],
+    "filament_wipe": [
+        "1"
+    ],
+    "filament_z_hop": [
+        "0.4"
+    ],
+    "filament_z_hop_types": [
+        "Normal Lift"
+    ],
+    "from": "User",
+    "hot_plate_temp": [
+        "105"
+    ],
+    "hot_plate_temp_initial_layer": [
+        "110"
+    ],
+    "inherits": "Generic ASA @System",
+    "name": "ASA - Polymaker",
+    "nozzle_temperature_range_high": [
+        "260"
+    ],
+    "nozzle_temperature_range_low": [
+        "230"
+    ],
+    "overhang_fan_speed": [
+        "35"
+    ],
+    "pressure_advance": [
+        "0.04"
+    ],
+    "slow_down_layer_time": [
+        "0"
+    ],
+    "version": "2.3.1.10"
+}
