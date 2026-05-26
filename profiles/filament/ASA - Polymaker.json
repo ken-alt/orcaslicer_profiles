@@ -3,7 +3,10 @@
         "1"
     ],
     "adaptive_pressure_advance_model": [
-        ""
+        "0.045,3.03,1000\n0.050,4.54,1000\n0.040,11.4,1000\n0.030,3.03,2500\n0.025,4.54,2500\n0.020,11.4,2500\n0.025,3.03,5000\n0.035,4.54,5000\n0.025,11.4,5000"
+    ],
+    "adaptive_pressure_advance_overhangs": [
+        "1"
     ],
     "compatible_printers": [
         "Voron Trident 250 - 0.4 nozzle",
@@ -26,7 +29,7 @@
         "20"
     ],
     "fan_min_speed": [
-        "0"
+        "15"
     ],
     "filament_cost": [
         "22"
@@ -41,10 +44,10 @@
         "Direct Drive Standard"
     ],
     "filament_flow_ratio": [
-        "0.93"
+        "0.89"
     ],
     "filament_max_volumetric_speed": [
-        "14"
+        "22"
     ],
     "filament_retract_lift_enforce": [
         "All Surfaces"
@@ -85,6 +88,12 @@
     ],
     "inherits": "Generic ASA @System",
     "name": "ASA - Polymaker",
+    "nozzle_temperature": [
+        "250"
+    ],
+    "nozzle_temperature_initial_layer": [
+        "255"
+    ],
     "nozzle_temperature_range_high": [
         "260"
     ],
@@ -96,6 +105,9 @@
     ],
     "pressure_advance": [
         "0.04"
+    ],
+    "reduce_fan_stop_start_freq": [
+        "0"
     ],
     "slow_down_layer_time": [
         "0"
