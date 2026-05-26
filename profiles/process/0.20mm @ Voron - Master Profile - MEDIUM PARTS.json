@@ -33,7 +33,7 @@
     "initial_layer_speed": "20",
     "inner_wall_acceleration": "2000",
     "inner_wall_line_width": "120%",
-    "inner_wall_speed": "100",
+    "inner_wall_speed": "60",
     "internal_bridge_speed": "60",
     "internal_solid_infill_acceleration": "3500",
     "internal_solid_infill_line_width": "125%",
