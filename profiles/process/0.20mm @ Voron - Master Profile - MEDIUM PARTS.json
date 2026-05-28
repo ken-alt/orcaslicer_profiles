@@ -23,7 +23,6 @@
     "from": "User",
     "gap_fill_target": "everywhere",
     "gap_infill_speed": "30",
-    "hole_to_polyhole": "1",
     "infill_wall_overlap": "15%",
     "inherits": "0.20mm Standard @Voron",
     "initial_layer_acceleration": "1000",
@@ -91,6 +90,8 @@
     "travel_acceleration": "3500",
     "travel_speed": "450",
     "version": "2.0.2.0",
+    "wall_distribution_count": "2",
+    "wall_generator": "classic",
     "wall_loops": "4",
     "wipe_before_external_loop": "1",
     "wipe_on_loops": "1"
