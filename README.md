@@ -58,7 +58,7 @@ profiles/
 Profiles are synced automatically each night at 9pm by `backup-orcaslicer.sh`. To run manually:
 
 ```bash
-"$HOME/_Claude Cowork OS/3D Printers/orcaslicer_profiles/backup-orcaslicer.sh"
+"$HOME/_Claude/3D Printers/orcaslicer_profiles/backup-orcaslicer.sh"
 ```
 
 ## Related Repos

@@ -14,6 +14,9 @@
     "filament_density": [
         "1.25"
     ],
+    "filament_extruder_variant": [
+        "Direct Drive Standard"
+    ],
     "filament_notes": [
         "calibrated filament at 200 degrees. changed to default of 220. should recalibrate."
     ],
@@ -28,7 +31,6 @@
     ],
     "from": "User",
     "inherits": "Generic PLA @System",
-    "is_custom_defined": "0",
     "name": "PLA - Elegoo Silk - 2.4",
     "nozzle_temperature_initial_layer": [
         "215"

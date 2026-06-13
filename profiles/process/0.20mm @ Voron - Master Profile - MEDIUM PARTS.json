@@ -11,7 +11,6 @@
     "brim_object_gap": "0",
     "brim_width": "8",
     "compatible_printers": [],
-    "counterbore_hole_bridging": "partiallybridge",
     "default_acceleration": "1500",
     "dont_filter_internal_bridges": "limited",
     "elefant_foot_compensation": "0.1",

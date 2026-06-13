@@ -5,8 +5,8 @@
 
 set -euo pipefail
 
-ORCA_SOURCE="$HOME/Library/Application Support/OrcaSlicer/user/3511669932"
-REPO="$HOME/_Claude Cowork OS/3D Printers/orcaslicer_profiles"
+ORCA_SOURCE="$HOME/Library/Application Support/OrcaSlicer/user/default"
+REPO="$HOME/_Claude/3D Printers/orcaslicer_profiles"
 LOG="$REPO/backup.log"
 
 # Verify repo exists
@@ -19,6 +19,14 @@ fi
 # Verify source exists
 if [ ! -d "$ORCA_SOURCE" ]; then
   echo "ERROR: OrcaSlicer config not found at $ORCA_SOURCE" >&2
+  exit 1
+fi
+
+# Safety guard: never mirror an empty/wiped config over the backup.
+# (Logging the account out, or a sync wipe, can empty machine/process — see MEMORY.md 2026-06-12.)
+if [ -z "$(ls -A "$ORCA_SOURCE/machine" 2>/dev/null)" ] || [ -z "$(ls -A "$ORCA_SOURCE/process" 2>/dev/null)" ]; then
+  echo "$(date '+%Y-%m-%d %H:%M:%S') — ABORT: source machine/ or process/ is empty. Not syncing (would delete backups)." >> "$LOG"
+  echo "ERROR: $ORCA_SOURCE has empty machine/ or process/ — refusing to sync." >&2
   exit 1
 fi
 
