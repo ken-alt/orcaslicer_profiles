@@ -1,39 +1,40 @@
 {
-    "bed_custom_model": "/Users/ken/Documents/Prusa Slicer Voron Skin Files/VT_250mm_bed_model.stl",
-    "bed_custom_texture": "/Users/ken/Documents/Prusa Slicer Voron Skin Files/superslicer-bed-plain.png",
-    "enable_filament_ramming": "0",
-    "from": "User",
-    "inherits": "Voron Trident 250 0.4 nozzle",
-    "layer_change_gcode": "AFTER_LAYER_CHANGE\n;[layer_z]\nSET_PRINT_STATS_INFO CURRENT_LAYER=[layer_num]\n",
-    "machine_max_acceleration_x": [
-        "5000",
-        "20000"
-    ],
-    "machine_max_acceleration_y": [
-        "5000",
-        "20000"
-    ],
-    "machine_start_gcode": "SET_PRINT_STATS_INFO TOTAL_LAYER=[total_layer_count]\nPRINT_START EXTRUDER=[nozzle_temperature_initial_layer] BED=[bed_temperature_initial_layer_single] CHAMBER=[chamber_temperature]\n",
-    "min_layer_height": [
-        "0.08"
-    ],
-    "name": "Voron Trident 250 - 0.4 nozzle",
-    "nozzle_type": [
-        "hardened_steel"
-    ],
-    "print_host": "http://trident.local",
-    "printable_height": "320",
-    "printer_extruder_id": [
-        "1"
-    ],
-    "printer_extruder_variant": [
-        "Direct Drive Standard"
-    ],
-    "printer_settings_id": "Voron Trident 250 - 0.4 nozzle",
-    "purge_in_prime_tower": "0",
-    "retraction_length": [
-        "0.5"
-    ],
-    "single_extruder_multi_material": "0",
-    "version": "2.0.2.0"
+	"bed_custom_model": "/Users/ken/Documents/Prusa Slicer Voron Skin Files/VT_250mm_bed_model.stl",
+	"bed_custom_texture": "/Users/ken/Documents/Prusa Slicer Voron Skin Files/superslicer-bed-plain.png",
+	"enable_filament_ramming": "0",
+	"from": "User",
+	"host_type": "moonraker",
+	"inherits": "Voron Trident 250 0.4 nozzle",
+	"layer_change_gcode": "AFTER_LAYER_CHANGE\n;[layer_z]\nSET_PRINT_STATS_INFO CURRENT_LAYER=[layer_num]\n",
+	"machine_max_acceleration_x": [
+		"5000",
+		"20000"
+	],
+	"machine_max_acceleration_y": [
+		"5000",
+		"20000"
+	],
+	"machine_start_gcode": "SET_PRINT_STATS_INFO TOTAL_LAYER=[total_layer_count]\nPRINT_START EXTRUDER=[nozzle_temperature_initial_layer] BED=[bed_temperature_initial_layer_single] CHAMBER=[chamber_temperature]\n",
+	"min_layer_height": [
+		"0.08"
+	],
+	"name": "Voron Trident 250 - 0.4 nozzle",
+	"nozzle_type": [
+		"hardened_steel"
+	],
+	"print_host": "http://trident.local",
+	"printable_height": "320",
+	"printer_extruder_id": [
+		"1"
+	],
+	"printer_extruder_variant": [
+		"Direct Drive Standard"
+	],
+	"printer_settings_id": "Voron Trident 250 - 0.4 nozzle",
+	"purge_in_prime_tower": "0",
+	"retraction_length": [
+		"0.5"
+	],
+	"single_extruder_multi_material": "0",
+	"version": "2.0.2.0"
 }
