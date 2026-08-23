@@ -1,0 +1,404 @@
+// ---------------------------------------------------------------------------
+//  Display-Space IDT
+//  Inverse display-rendering transform for DaVinci Resolve.
+//
+//  Takes display-referred footage (already-graded Rec.709 / P3 / Rec.2020
+//  masters, stock, screen grabs, AI-generated frames, ProRes deliverables)
+//  and undoes the display render so the image can be graded as if it were
+//  scene-referred camera material in a wide-gamut working space.
+//
+//  Pipeline:
+//     display code value
+//       -> EOTF decode                (display linear, 1.0 = display white)
+//       -> input black offset removal
+//       -> toe uncompress             (restore shadow contrast)
+//       -> highlight unroll           (recover values above display white)
+//       -> preserve highlight color   (ratio-locked vs per-channel unroll)
+//       -> input contrast removal     (pivoted on 0.18)
+//       -> gamut expand               (inverse gamut compression)
+//       -> primaries matrix           (display gamut -> destination gamut)
+//       -> destination encode         (linear / DaVinci Intermediate / ACEScct)
+//
+//  Node placement: first node of the clip, before any grading.
+//  Set Display Space to match how the footage was mastered, and Destination
+//  Space to your timeline colour space.
+// ---------------------------------------------------------------------------
+
+// Set to 0 if the curve overlay lands in the wrong corner / appears flipped.
+#define CURVE_ORIGIN_TOP_LEFT   1
+
+DEFINE_UI_PARAMS(p_Unroll,    Highlight Unroll,        DCTLUI_SLIDER_FLOAT, 0.5, 0.0, 1.0, 0.001)
+DEFINE_UI_PARAMS(p_Toe,       Toe Uncompress,          DCTLUI_SLIDER_FLOAT, 0.5, 0.0, 1.0, 0.001)
+DEFINE_UI_PARAMS(p_Expand,    Gamut Expand,            DCTLUI_SLIDER_FLOAT, 0.5, 0.0, 1.0, 0.001)
+DEFINE_UI_PARAMS(p_PHC,       Preserve Highlight Color,DCTLUI_SLIDER_FLOAT, 0.5, 0.0, 1.0, 0.001)
+DEFINE_UI_PARAMS(p_Black,     Input Black,             DCTLUI_SLIDER_FLOAT, 0.0, -0.05, 0.10, 0.0005)
+DEFINE_UI_PARAMS(p_Contrast,  Input Contrast,          DCTLUI_SLIDER_FLOAT, 1.0, 0.50, 2.00, 0.001)
+
+DEFINE_UI_PARAMS(p_ShowCurve, Show Curve,              DCTLUI_CHECK_BOX, 0)
+
+DEFINE_UI_PARAMS(p_Display,   Display Space,           DCTLUI_COMBO_BOX, 0,
+    {DSP_709_24, DSP_709_22, DSP_709_SRGB, DSP_709_709, DSP_P3_26, DSP_P3_24, DSP_2020_24, DSP_2020_PQ},
+    {"Rec.709 / Gamma 2.4", "Rec.709 / Gamma 2.2", "Rec.709 / sRGB", "Rec.709 / Rec.709",
+     "P3-D65 / Gamma 2.6", "P3-D65 / Gamma 2.4", "Rec.2020 / Gamma 2.4", "Rec.2020 / ST.2084"})
+
+DEFINE_UI_PARAMS(p_Dest,      Destination Space,       DCTLUI_COMBO_BOX, 0,
+    {DST_DWG_LIN, DST_DWG_DI, DST_AP1_CCT, DST_AP0_LIN, DST_709_LIN},
+    {"DaVinci Wide Gamut / Linear", "DaVinci Wide Gamut / DaVinci Intermediate",
+     "ACES AP1 / ACEScct", "ACES AP0 / Linear", "Rec.709 / Linear"})
+
+// ---------------------------------------------------------------------------
+//  helpers
+// ---------------------------------------------------------------------------
+
+__DEVICE__ float3 mat3(float3 v,
+                       float m00, float m01, float m02,
+                       float m10, float m11, float m12,
+                       float m20, float m21, float m22)
+{
+    return make_float3(m00 * v.x + m01 * v.y + m02 * v.z,
+                       m10 * v.x + m11 * v.y + m12 * v.z,
+                       m20 * v.x + m21 * v.y + m22 * v.z);
+}
+
+// signed power: keeps negatives (and therefore out-of-gamut values) alive
+__DEVICE__ float spow(float x, float e)
+{
+    return _copysignf(_powf(_fabs(x), e), x);
+}
+
+// ---------------------------------------------------------------------------
+//  EOTF decode: display code value -> display linear (1.0 = display white)
+// ---------------------------------------------------------------------------
+
+__DEVICE__ float eotf_srgb(float v)
+{
+    return (v <= 0.04045f) ? v / 12.92f : _powf((v + 0.055f) / 1.055f, 2.4f);
+}
+
+__DEVICE__ float eotf_709(float v)   // inverse of the Rec.709 camera OETF
+{
+    return (v < 0.081f) ? v / 4.5f : _powf((v + 0.099f) / 1.099f, 1.0f / 0.45f);
+}
+
+__DEVICE__ float eotf_pq(float v)    // ST.2084 -> nits, normalised so 203 nits = 1.0
+{
+    const float m1 = 0.1593017578125f;
+    const float m2 = 78.84375f;
+    const float c1 = 0.8359375f;
+    const float c2 = 18.8515625f;
+    const float c3 = 18.6875f;
+
+    float p = _powf(_fmaxf(v, 0.0f), 1.0f / m2);
+    float n = _fmaxf(p - c1, 0.0f) / _fmaxf(c2 - c3 * p, 1e-8f);
+    return _powf(n, 1.0f / m1) * 10000.0f / 203.0f;
+}
+
+__DEVICE__ float3 decode_eotf(float3 v, int space)
+{
+    if (space == DSP_709_24 || space == DSP_P3_24 || space == DSP_2020_24)
+        return make_float3(spow(v.x, 2.4f), spow(v.y, 2.4f), spow(v.z, 2.4f));
+
+    if (space == DSP_709_22)
+        return make_float3(spow(v.x, 2.2f), spow(v.y, 2.2f), spow(v.z, 2.2f));
+
+    if (space == DSP_P3_26)
+        return make_float3(spow(v.x, 2.6f), spow(v.y, 2.6f), spow(v.z, 2.6f));
+
+    if (space == DSP_709_SRGB)
+        return make_float3(eotf_srgb(v.x), eotf_srgb(v.y), eotf_srgb(v.z));
+
+    if (space == DSP_709_709)
+        return make_float3(eotf_709(v.x), eotf_709(v.y), eotf_709(v.z));
+
+    // DSP_2020_PQ
+    return make_float3(eotf_pq(v.x), eotf_pq(v.y), eotf_pq(v.z));
+}
+
+// ---------------------------------------------------------------------------
+//  primaries: display gamut -> XYZ (D65) -> destination gamut
+// ---------------------------------------------------------------------------
+
+__DEVICE__ float3 display_to_xyz(float3 v, int space)
+{
+    if (space == DSP_P3_26 || space == DSP_P3_24)
+        return mat3(v,  0.48657095f,  0.26566769f,  0.19821729f,
+                        0.22897456f,  0.69173852f,  0.07928691f,
+                        0.00000000f,  0.04511338f,  1.04394437f);
+
+    if (space == DSP_2020_24 || space == DSP_2020_PQ)
+        return mat3(v,  0.63695805f,  0.14461690f,  0.16888098f,
+                        0.26270021f,  0.67799807f,  0.05930172f,
+                        0.00000000f,  0.02807269f,  1.06098506f);
+
+    // Rec.709
+    return mat3(v,      0.41239080f,  0.35758434f,  0.18048079f,
+                        0.21263901f,  0.71516868f,  0.07219232f,
+                        0.01933082f,  0.11919478f,  0.95053215f);
+}
+
+__DEVICE__ float3 xyz_to_dest(float3 v, int dest)
+{
+    if (dest == DST_AP1_CCT)      // Bradford CAT D65 -> D60 baked in
+        return mat3(v,  1.66058533f, -0.31529556f, -0.24150933f,
+                       -0.65992606f,  1.60839147f,  0.01729859f,
+                        0.00900257f, -0.00356688f,  0.91364331f);
+
+    if (dest == DST_AP0_LIN)      // Bradford CAT D65 -> D60 baked in
+        return mat3(v,  1.06349549f,  0.00640891f, -0.01580679f,
+                       -0.49207413f,  1.36822341f,  0.09133709f,
+                       -0.00281646f,  0.00464417f,  0.91641857f);
+
+    if (dest == DST_709_LIN)
+        return mat3(v,  3.24096994f, -1.53738318f, -0.49861076f,
+                       -0.96924364f,  1.87596750f,  0.04155506f,
+                        0.05563008f, -0.20397696f,  1.05697151f);
+
+    // DaVinci Wide Gamut
+    return mat3(v,      1.51667204f, -0.28147805f, -0.14696363f,
+                       -0.46491710f,  1.25142378f,  0.17488461f,
+                        0.06484905f,  0.10913934f,  0.76141462f);
+}
+
+// ---------------------------------------------------------------------------
+//  destination transfer function
+// ---------------------------------------------------------------------------
+
+__DEVICE__ float lin_to_di(float x)          // DaVinci Intermediate
+{
+    const float A = 0.0075f;
+    const float B = 7.0f;
+    const float C = 0.07329248f;
+    const float M = 10.44426855f;
+    const float LIN_CUT = 0.00262409f;
+
+    return (x <= LIN_CUT) ? x * M : (_log2f(x + A) + B) * C;
+}
+
+__DEVICE__ float lin_to_cct(float x)         // ACEScct
+{
+    const float X_BRK = 0.0078125f;
+    const float A = 10.5402377416545f;
+    const float B = 0.0729055341958355f;
+
+    return (x <= X_BRK) ? A * x + B : (_log2f(x) + 9.72f) / 17.52f;
+}
+
+__DEVICE__ float3 encode_dest(float3 v, int dest)
+{
+    if (dest == DST_DWG_DI)
+        return make_float3(lin_to_di(v.x), lin_to_di(v.y), lin_to_di(v.z));
+
+    if (dest == DST_AP1_CCT)
+        return make_float3(lin_to_cct(v.x), lin_to_cct(v.y), lin_to_cct(v.z));
+
+    return v;   // linear destinations pass through
+}
+
+// ---------------------------------------------------------------------------
+//  tone stage
+// ---------------------------------------------------------------------------
+
+// Inverse of the display toe  f(x) = x^2 / (x + t), normalised so 1.0 -> 1.0.
+// Pulls the crushed foot back down and restores linear shadow separation.
+__DEVICE__ float toe_uncompress(float y, float amount)
+{
+    if (amount <= 1e-6f) return y;
+
+    if (y <= 0.0f) return y;      // let negatives pass through untouched
+
+    float t = 0.04f * amount;
+    float n = 0.5f * (1.0f + _sqrtf(1.0f + 4.0f * t));      // value of the inverse at y = 1
+    return (0.5f * (y + _sqrtf(y * y + 4.0f * t * y))) / n;
+}
+
+// Inverse of a hyperbolic highlight rolloff.
+// Values below the knee are untouched; the knee..1.0 range is expanded back
+// out to knee..peak, so blown-in highlights regain scene-referred range.
+__DEVICE__ float highlight_unroll(float y, float amount)
+{
+    if (amount <= 1e-6f) return y;
+
+    float knee = 1.0f - 0.6f * amount;          // 1.0 -> 0.4
+    float peak = 1.0f + 15.0f * amount * amount; // 1.0 -> 16.0
+
+    if (y <= knee) return y;
+
+    float w = 1.0f - knee;
+    float d = _fminf(y - knee, w);
+    float k = 1.0f - w / (peak - knee);
+    float den = _fmaxf(w - d * k, 1e-6f);
+    return knee + d * w / den;
+}
+
+// display linear -> scene linear, single channel (no colour preservation)
+__DEVICE__ float tonescale(float x, float black, float toe, float unroll, float contrast)
+{
+    float v = (x - black) / _fmaxf(1.0f - black, 1e-6f);
+    v = toe_uncompress(v, toe);
+    v = highlight_unroll(v, unroll);
+
+    if (_fabs(contrast - 1.0f) > 1e-6f)
+        v = 0.18f * spow(v / 0.18f, 1.0f / contrast);
+
+    return v;
+}
+
+// ---------------------------------------------------------------------------
+//  gamut expand — inverse of the ACES-style distance-based gamut compression
+// ---------------------------------------------------------------------------
+
+__DEVICE__ float uncompress_dist(float d, float lim, float thr, float pwr)
+{
+    if (d < thr || lim < 1.0001f) return d;
+
+    // A display-referred image cannot carry distances beyond its own gamut
+    // boundary (d = 1), and the inverse is only defined inside that domain.
+    // Anything further out is already outside the source gamut, so it is
+    // carried through with the boundary's offset to stay continuous there.
+    if (d > 1.0f) return d + (lim - 1.0f);
+
+    float s = (lim - thr) / _powf(_powf((1.0f - thr) / (lim - thr), -pwr) - 1.0f, 1.0f / pwr);
+    float nd = _fminf((d - thr) / s, 0.9999f);
+    float np = _powf(nd, pwr);
+    return thr + s * _powf(np / _fmaxf(1.0f - np, 1e-6f), 1.0f / pwr);
+}
+
+__DEVICE__ float3 gamut_expand(float3 rgb, float amount)
+{
+    if (amount <= 1e-6f) return rgb;
+
+    // ACES 1.3 RGC limits/thresholds, reached at slider = 1.0.
+    float lim_c = 1.0f + amount * 0.147f;
+    float lim_m = 1.0f + amount * 0.264f;
+    float lim_y = 1.0f + amount * 0.312f;
+    const float thr_c = 0.815f;
+    const float thr_m = 0.803f;
+    const float thr_y = 0.880f;
+    const float pwr   = 1.2f;
+
+    float ach = _fmaxf(_fmaxf(rgb.x, rgb.y), rgb.z);
+    if (ach < 1e-6f) return rgb;
+
+    float dr = (ach - rgb.x) / _fabs(ach);
+    float dg = (ach - rgb.y) / _fabs(ach);
+    float db = (ach - rgb.z) / _fabs(ach);
+
+    dr = uncompress_dist(dr, lim_c, thr_c, pwr);
+    dg = uncompress_dist(dg, lim_m, thr_m, pwr);
+    db = uncompress_dist(db, lim_y, thr_y, pwr);
+
+    return make_float3(ach - dr * ach, ach - dg * ach, ach - db * ach);
+}
+
+// ---------------------------------------------------------------------------
+//  curve overlay
+// ---------------------------------------------------------------------------
+
+__DEVICE__ float line_alpha(float dist, float halfwidth)
+{
+    return _clampf(1.0f - (dist - halfwidth) / _fmaxf(halfwidth, 1e-6f), 0.0f, 1.0f);
+}
+
+// ---------------------------------------------------------------------------
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y,
+                            float p_R, float p_G, float p_B)
+{
+    float3 rgb = make_float3(p_R, p_G, p_B);
+
+    // 1. display code value -> display linear
+    rgb = decode_eotf(rgb, p_Display);
+
+    // 2/3/4. black, toe, highlight unroll — per channel
+    float3 perch = make_float3(tonescale(rgb.x, p_Black, p_Toe, p_Unroll, p_Contrast),
+                               tonescale(rgb.y, p_Black, p_Toe, p_Unroll, p_Contrast),
+                               tonescale(rgb.z, p_Black, p_Toe, p_Unroll, p_Contrast));
+
+    // 5. preserve highlight color: drive the tonescale with a single norm and
+    //    scale the triplet, which keeps channel ratios (and therefore hue)
+    //    intact through the unroll instead of letting the hot channel run away.
+    //    Gated to the unroll's own knee..white region, so shadows and negative
+    //    (sub-black) values never go through the ratio path.
+    float3 out = perch;
+    float norm = _fmaxf(_fmaxf(rgb.x, rgb.y), rgb.z);
+
+    if (p_PHC > 1e-6f && p_Unroll > 1e-6f && norm > 1e-5f)
+    {
+        float knee = 1.0f - 0.6f * p_Unroll;
+        float w    = _clampf((norm - knee) / _fmaxf(1.0f - knee, 1e-6f), 0.0f, 1.0f);
+        w = w * w * (3.0f - 2.0f * w);            // smoothstep into the highlights
+        w *= p_PHC;
+
+        if (w > 1e-6f)
+        {
+            float gain = tonescale(norm, p_Black, p_Toe, p_Unroll, p_Contrast) / norm;
+            out = make_float3(_mix(perch.x, rgb.x * gain, w),
+                              _mix(perch.y, rgb.y * gain, w),
+                              _mix(perch.z, rgb.z * gain, w));
+        }
+    }
+
+    // 6. gamut expand, still on display primaries
+    out = gamut_expand(out, p_Expand);
+
+    // 7/8. primaries conversion + destination encode
+    out = display_to_xyz(out, p_Display);
+    out = xyz_to_dest(out, p_Dest);
+    out = encode_dest(out, p_Dest);
+
+    // ---- optional curve overlay -------------------------------------------
+    if (p_ShowCurve)
+    {
+        float pw   = (float)p_Width;
+        float ph   = (float)p_Height;
+        float side = 0.30f * pw;
+        float marg = 0.03f * pw;
+
+        float px = (float)p_X;
+#if CURVE_ORIGIN_TOP_LEFT
+        float py = ph - (float)p_Y;      // measure up from the bottom
+#else
+        float py = (float)p_Y;
+#endif
+        float x0 = marg;
+        float y0 = marg;
+
+        if (px >= x0 && px <= x0 + side && py >= y0 && py <= y0 + side)
+        {
+            float gx = (px - x0) / side;          // input  0..1 display code value
+            float gy = (py - y0) / side;          // output 0..1 (DaVinci Intermediate)
+            float ppx = 1.0f / side;              // one pixel in graph units
+
+            // background + border
+            float3 plot = make_float3(0.015f, 0.015f, 0.015f);
+            float edge = _fminf(_fminf(gx, 1.0f - gx), _fminf(gy, 1.0f - gy));
+            if (edge < 3.0f * ppx) plot = make_float3(0.12f, 0.12f, 0.12f);
+
+            // grid every 0.25
+            float gxm = _fabs(gx * 4.0f - _floor(gx * 4.0f + 0.5f)) / 4.0f;
+            float gym = _fabs(gy * 4.0f - _floor(gy * 4.0f + 0.5f)) / 4.0f;
+            if (gxm < ppx || gym < ppx) plot = make_float3(0.05f, 0.05f, 0.05f);
+
+            // 18% scene grey reference
+            float mid = lin_to_di(0.18f);
+            if (_fabs(gy - mid) < 1.2f * ppx) plot = make_float3(0.10f, 0.09f, 0.05f);
+
+            // the transfer curve itself, plotted in DaVinci Intermediate so the
+            // whole 0..100 scene range is visible
+            float lin  = decode_eotf(make_float3(gx, gx, gx), p_Display).x;
+            float lin2 = decode_eotf(make_float3(gx + ppx, gx + ppx, gx + ppx), p_Display).x;
+            float c1 = _clampf(lin_to_di(tonescale(lin,  p_Black, p_Toe, p_Unroll, p_Contrast)), 0.0f, 1.0f);
+            float c2 = _clampf(lin_to_di(tonescale(lin2, p_Black, p_Toe, p_Unroll, p_Contrast)), 0.0f, 1.0f);
+
+            float slope = (c2 - c1) / ppx;
+            float dist  = _fabs(gy - c1) / _sqrtf(1.0f + slope * slope);
+            float a     = line_alpha(dist, 1.5f * ppx);
+
+            plot = make_float3(_mix(plot.x, 0.9f, a), _mix(plot.y, 0.9f, a), _mix(plot.z, 0.9f, a));
+
+            out = encode_dest(plot, p_Dest);
+        }
+    }
+
+    return out;
+}
