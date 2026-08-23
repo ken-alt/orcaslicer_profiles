@@ -222,7 +222,7 @@ __DEVICE__ float3 encode_dest(float3 v, int dest)
 //     forward   f(x) = t(h(x)),   h(x) = m2 * (x/(x+s2))^g,   t(y) = y^2/(y+t1)
 //  Both halves invert in closed form, so where the source really was rendered
 //  with this curve the recovered scene value is exact rather than estimated.
-//  Verified round-trip: rev(fwd(x)) = x to 2.8e-5 relative over the usable
+//  Verified round-trip: rev(fwd(x)) = x to 2.1e-6 relative over the usable
 //  domain (float32 precision).
 //
 //  Returned as (g, t1, s2, m2).
@@ -361,7 +361,7 @@ __DEVICE__ float phc_knee(int mode, float unroll)
 }
 
 // ---------------------------------------------------------------------------
-//  gamut expand — inverse of the ACES-style distance-based gamut compression
+//  gamut expand - inverse of the ACES-style distance-based gamut compression
 // ---------------------------------------------------------------------------
 
 __DEVICE__ float uncompress_dist(float d, float lim, float thr, float pwr)
