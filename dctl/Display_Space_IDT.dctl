@@ -2,22 +2,30 @@
 //  Display-Space IDT
 //  Inverse display-rendering transform for DaVinci Resolve.
 //
-//  Takes display-referred footage (already-graded Rec.709 / P3 / Rec.2020
-//  masters, stock, screen grabs, AI-generated frames, ProRes deliverables)
-//  and undoes the display render so the image can be graded as if it were
-//  scene-referred camera material in a wide-gamut working space.
+//  Answers: given an image already rendered for a Rec.709 (or P3 / Rec.2020)
+//  display, what scene-referred signal would have produced it?
+//
+//  A display render is   scene -> tonescale -> gamut compress -> encode.
+//  Recovering the scene signal means undoing those in reverse order, so the
+//  gamut step is inverted BEFORE the tonescale: the tonescale is per-channel
+//  and changes channel ratios, which is exactly what the gamut step measures.
+//  Inverting them in the wrong order moves saturated colour (see README).
 //
 //  Pipeline:
 //     display code value
 //       -> EOTF decode                (display linear, 1.0 = display white)
-//       -> input black offset removal
-//       -> toe uncompress             (restore shadow contrast)
-//       -> highlight unroll           (recover values above display white)
-//       -> preserve highlight color   (ratio-locked vs per-channel unroll)
-//       -> input contrast removal     (pivoted on 0.18)
 //       -> gamut expand               (inverse gamut compression)
+//       -> input black offset removal
+//       -> inverse tonescale          (analytic, or parametric estimate)
+//       -> preserve highlight color   (ratio-locked vs per-channel)
+//       -> input contrast removal     (pivoted on 0.18, scene domain)
 //       -> primaries matrix           (display gamut -> destination gamut)
 //       -> destination encode         (linear / DaVinci Intermediate / ACEScct)
+//
+//  The question has no unique answer everywhere. Every tonescale asymptotes
+//  to display white, so a clipped pixel's preimage is a ray, not a point;
+//  the same holds at black clip and where a channel was clamped to the gamut
+//  boundary. Diagnostic > Recoverability marks those pixels.
 //
 //  Node placement: first node of the clip, before any grading.
 //  Set Display Space to match how the footage was mastered, and Destination
@@ -45,6 +53,18 @@ DEFINE_UI_PARAMS(p_Dest,      Destination Space,       DCTLUI_COMBO_BOX, 0,
     {DST_DWG_LIN, DST_DWG_DI, DST_AP1_CCT, DST_AP0_LIN, DST_709_LIN},
     {"DaVinci Wide Gamut / Linear", "DaVinci Wide Gamut / DaVinci Intermediate",
      "ACES AP1 / ACEScct", "ACES AP0 / Linear", "Rec.709 / Linear"})
+
+// How the source was rendered. If you know it was tone-mapped with the
+// Daniele/ACES-2 curve family, the inverse is analytic and exact; otherwise
+// the parametric sliders estimate the inverse by hand.
+DEFINE_UI_PARAMS(p_Source,    Source Rendering,        DCTLUI_COMBO_BOX, 0,
+    {SRC_PARAM, SRC_TONEMAP},
+    {"Unknown / Parametric", "Tone-Mapped (Daniele / ACES 2 curve)"})
+
+DEFINE_UI_PARAMS(p_Peak,      Source Peak Luminance,   DCTLUI_SLIDER_FLOAT, 100.0, 100.0, 4000.0, 1.0)
+
+DEFINE_UI_PARAMS(p_Diag,      Diagnostic,              DCTLUI_COMBO_BOX, 0,
+    {DIAG_OFF, DIAG_RECOV}, {"Off", "Recoverability"})
 
 // ---------------------------------------------------------------------------
 //  helpers
@@ -195,6 +215,85 @@ __DEVICE__ float3 encode_dest(float3 v, int dest)
 }
 
 // ---------------------------------------------------------------------------
+//  analytic inverse of a known tone compressor
+//
+//  The Daniele Evo curve: the tone compressor family used by the ACES 2.0
+//  output transform, closely related to Resolve's DaVinci Tone Mapping.
+//     forward   f(x) = t(h(x)),   h(x) = m2 * (x/(x+s2))^g,   t(y) = y^2/(y+t1)
+//  Both halves invert in closed form, so where the source really was rendered
+//  with this curve the recovered scene value is exact rather than estimated.
+//  Verified round-trip: rev(fwd(x)) = x to 2.8e-5 relative over the usable
+//  domain (float32 precision).
+//
+//  Returned as (g, t1, s2, m2).
+// ---------------------------------------------------------------------------
+
+__DEVICE__ float4 daniele_params(float n)
+{
+    const float n_r = 100.0f;
+    const float g   = 1.15f;      // contrast
+    const float c   = 0.18f;      // scene mid grey
+    const float c_d = 10.013f;    // nominal mid grey output, nits
+    const float w_g = 0.14f;      // grey change with peak luminance
+    const float t_1 = 0.04f;      // toe
+    const float r_hit_min = 128.0f;
+    const float r_hit_max = 896.0f;
+
+    float r_hit  = r_hit_min + (r_hit_max - r_hit_min) * (_log2f(n / n_r) / _log2f(100.0f));
+    float m_0    = n / n_r;
+    float m_1    = 0.5f * (m_0 + _sqrtf(m_0 * (m_0 + 4.0f * t_1)));
+    float rm     = r_hit / m_1;
+    float u      = _powf(rm / (rm + 1.0f), g);
+    float m      = m_1 / u;
+    float w_i    = _log2f(n / 100.0f);
+    float c_t    = (c_d / n_r) * (1.0f + w_i * w_g);
+    float g_ip   = 0.5f * (c_t + _sqrtf(c_t * (c_t + 4.0f * t_1)));
+    float a      = _powf(g_ip / m, 1.0f / g);
+    float g_ipp2 = -m_1 * a / (a - 1.0f);
+    float w_2    = c / g_ipp2;
+    float s_2    = w_2 * m_1;
+    float u_2    = _powf(rm / (rm + w_2), g);
+    float m_2    = m / u_2;
+
+    return make_float4(g, t_1, s_2, m_2);
+}
+
+// Asymptote of the forward curve. Display values at or above this have no
+// bounded preimage: the scene signal that produced them cannot be recovered.
+// NB this is t(m_2), not n/(u_2*n_r) - the latter is the mid-grey anchor
+// ratio and sits ~1% lower, which would clamp valid highlight values.
+__DEVICE__ float daniele_ceiling(float4 p)
+{
+    return p.w * p.w / (p.w + p.y);
+}
+
+__DEVICE__ float daniele_fwd(float x, float4 p)
+{
+    if (x <= 0.0f) return x;
+    float h = p.w * _powf(x / (x + p.z), p.x);
+    return h * h / (h + p.y);
+}
+
+// Scene value at which the inverse is treated as saturated. Approaching the
+// ceiling the preimage runs to infinity, so anything past here is not a
+// recovered value but an arbitrary point on an unbounded ray - capped so it
+// stays finite and cannot poison downstream maths.
+// Legal display white recovers to ~59.9 scene at a 100-nit peak and ~223 at
+// 3200 nits, so this only ever bites above code value 1.0.
+#define SCENE_MAX   1000.0f
+
+__DEVICE__ float daniele_rev(float y, float4 p)
+{
+    if (y <= 0.0f) return y;                       // keep sub-black values alive
+
+    y = _fminf(y, daniele_ceiling(p) * (1.0f - 1e-4f));
+    float h = 0.5f * (y + _sqrtf(y * (4.0f * p.y + y)));
+    h = _fmaxf(h, 1e-9f);
+    float q = _powf(p.w / h, 1.0f / p.x);
+    return _fminf(p.z / _fmaxf(q - 1.0f, 1e-9f), SCENE_MAX);
+}
+
+// ---------------------------------------------------------------------------
 //  tone stage
 // ---------------------------------------------------------------------------
 
@@ -230,17 +329,35 @@ __DEVICE__ float highlight_unroll(float y, float amount)
     return knee + d * w / den;
 }
 
-// display linear -> scene linear, single channel (no colour preservation)
-__DEVICE__ float tonescale(float x, float black, float toe, float unroll, float contrast)
+// display linear -> scene linear, single channel (no colour preservation).
+// Either the analytic inverse of a known tone compressor, or the parametric
+// estimate built from the toe/unroll controls.
+__DEVICE__ float invert_tone(float x, int mode, float4 dp,
+                             float black, float toe, float unroll, float contrast)
 {
     float v = (x - black) / _fmaxf(1.0f - black, 1e-6f);
-    v = toe_uncompress(v, toe);
-    v = highlight_unroll(v, unroll);
+
+    if (mode == SRC_TONEMAP)
+    {
+        v = daniele_rev(v, dp);
+    }
+    else
+    {
+        v = toe_uncompress(v, toe);
+        v = highlight_unroll(v, unroll);
+    }
 
     if (_fabs(contrast - 1.0f) > 1e-6f)
         v = 0.18f * spow(v / 0.18f, 1.0f / contrast);
 
     return v;
+}
+
+// Where the inverse tonescale starts gaining hard, i.e. the region in which
+// per-channel inversion skews hue and Preserve Highlight Color earns its keep.
+__DEVICE__ float phc_knee(int mode, float unroll)
+{
+    return (mode == SRC_TONEMAP) ? 0.5f : (1.0f - 0.6f * unroll);
 }
 
 // ---------------------------------------------------------------------------
@@ -291,6 +408,33 @@ __DEVICE__ float3 gamut_expand(float3 rgb, float amount)
 }
 
 // ---------------------------------------------------------------------------
+//  recoverability diagnostic
+//
+//  Marks the pixels for which "what scene signal produced this?" has no
+//  unique answer, because the forward render threw the information away:
+//  clipped white (preimage is a ray), crushed black, or a channel clamped
+//  to the gamut boundary (hue was clamped, so the ratio is not the scene's).
+// ---------------------------------------------------------------------------
+
+__DEVICE__ float3 recoverability(float3 cv)
+{
+    const float hi = 0.996f;    // ~254/255: the source clipped here
+    const float lo = 0.004f;
+
+    int nhi = (cv.x >= hi ? 1 : 0) + (cv.y >= hi ? 1 : 0) + (cv.z >= hi ? 1 : 0);
+    int nlo = (cv.x <= lo ? 1 : 0) + (cv.y <= lo ? 1 : 0) + (cv.z <= lo ? 1 : 0);
+
+    if (nhi == 3) return make_float3(0.70f, 0.04f, 0.04f);   // white clipped: unbounded preimage
+    if (nhi >  0) return make_float3(0.75f, 0.42f, 0.04f);   // channel clipped: hue clamped
+    if (nlo == 3) return make_float3(0.04f, 0.10f, 0.55f);   // crushed to black
+    if (nlo >  0) return make_float3(0.08f, 0.40f, 0.50f);   // channel at black
+
+    float l = _clampf(0.2126f * cv.x + 0.7152f * cv.y + 0.0722f * cv.z, 0.0f, 1.0f);
+    float base = 0.04f + 0.22f * l;                          // unique preimage
+    return make_float3(base, base, base);
+}
+
+// ---------------------------------------------------------------------------
 //  curve overlay
 // ---------------------------------------------------------------------------
 
@@ -304,49 +448,60 @@ __DEVICE__ float line_alpha(float dist, float halfwidth)
 __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y,
                             float p_R, float p_G, float p_B)
 {
-    float3 rgb = make_float3(p_R, p_G, p_B);
+    float3 cv = make_float3(p_R, p_G, p_B);
+    float4 dp = daniele_params(_fmaxf(p_Peak, 100.0f));
 
     // 1. display code value -> display linear
-    rgb = decode_eotf(rgb, p_Display);
+    float3 dl = decode_eotf(cv, p_Display);
 
-    // 2/3/4. black, toe, highlight unroll — per channel
-    float3 perch = make_float3(tonescale(rgb.x, p_Black, p_Toe, p_Unroll, p_Contrast),
-                               tonescale(rgb.y, p_Black, p_Toe, p_Unroll, p_Contrast),
-                               tonescale(rgb.z, p_Black, p_Toe, p_Unroll, p_Contrast));
+    // 2. inverse gamut compression. This runs BEFORE the tonescale is
+    //    inverted: the forward render compressed gamut after tone mapping,
+    //    so undoing it first is what makes this an inverse rather than a
+    //    rearrangement. It also means distances are measured on display
+    //    linear, where distance 1 really is the display gamut boundary.
+    float3 lin = gamut_expand(dl, p_Expand);
 
-    // 5. preserve highlight color: drive the tonescale with a single norm and
+    // 3. inverse tonescale, per channel
+    float3 perch = make_float3(
+        invert_tone(lin.x, p_Source, dp, p_Black, p_Toe, p_Unroll, p_Contrast),
+        invert_tone(lin.y, p_Source, dp, p_Black, p_Toe, p_Unroll, p_Contrast),
+        invert_tone(lin.z, p_Source, dp, p_Black, p_Toe, p_Unroll, p_Contrast));
+
+    // 4. preserve highlight color: drive the inverse with a single norm and
     //    scale the triplet, which keeps channel ratios (and therefore hue)
-    //    intact through the unroll instead of letting the hot channel run away.
-    //    Gated to the unroll's own knee..white region, so shadows and negative
+    //    intact instead of letting the hot channel run away. Gated to the
+    //    region where the inverse gains hard, so shadows and negative
     //    (sub-black) values never go through the ratio path.
     float3 out = perch;
-    float norm = _fmaxf(_fmaxf(rgb.x, rgb.y), rgb.z);
+    float norm = _fmaxf(_fmaxf(lin.x, lin.y), lin.z);
+    int phc_live = (p_Source == SRC_TONEMAP) || (p_Unroll > 1e-6f);
 
-    if (p_PHC > 1e-6f && p_Unroll > 1e-6f && norm > 1e-5f)
+    if (p_PHC > 1e-6f && phc_live && norm > 1e-5f)
     {
-        float knee = 1.0f - 0.6f * p_Unroll;
-        float w    = _clampf((norm - knee) / _fmaxf(1.0f - knee, 1e-6f), 0.0f, 1.0f);
+        float knee = phc_knee(p_Source, p_Unroll);
+        float w = _clampf((norm - knee) / _fmaxf(1.0f - knee, 1e-6f), 0.0f, 1.0f);
         w = w * w * (3.0f - 2.0f * w);            // smoothstep into the highlights
         w *= p_PHC;
 
         if (w > 1e-6f)
         {
-            float gain = tonescale(norm, p_Black, p_Toe, p_Unroll, p_Contrast) / norm;
-            out = make_float3(_mix(perch.x, rgb.x * gain, w),
-                              _mix(perch.y, rgb.y * gain, w),
-                              _mix(perch.z, rgb.z * gain, w));
+            float gain = invert_tone(norm, p_Source, dp, p_Black, p_Toe, p_Unroll, p_Contrast) / norm;
+            out = make_float3(_mix(perch.x, lin.x * gain, w),
+                              _mix(perch.y, lin.y * gain, w),
+                              _mix(perch.z, lin.z * gain, w));
         }
     }
 
-    // 6. gamut expand, still on display primaries
-    out = gamut_expand(out, p_Expand);
-
-    // 7/8. primaries conversion + destination encode
+    // 5. primaries conversion + destination encode
     out = display_to_xyz(out, p_Display);
     out = xyz_to_dest(out, p_Dest);
     out = encode_dest(out, p_Dest);
 
-    // ---- optional curve overlay -------------------------------------------
+    // ---- diagnostic ---------------------------------------------------------
+    if (p_Diag == DIAG_RECOV)
+        out = encode_dest(recoverability(cv), p_Dest);
+
+    // ---- optional curve overlay --------------------------------------------
     if (p_ShowCurve)
     {
         float pw   = (float)p_Width;
@@ -385,10 +540,10 @@ __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y,
 
             // the transfer curve itself, plotted in DaVinci Intermediate so the
             // whole 0..100 scene range is visible
-            float lin  = decode_eotf(make_float3(gx, gx, gx), p_Display).x;
-            float lin2 = decode_eotf(make_float3(gx + ppx, gx + ppx, gx + ppx), p_Display).x;
-            float c1 = _clampf(lin_to_di(tonescale(lin,  p_Black, p_Toe, p_Unroll, p_Contrast)), 0.0f, 1.0f);
-            float c2 = _clampf(lin_to_di(tonescale(lin2, p_Black, p_Toe, p_Unroll, p_Contrast)), 0.0f, 1.0f);
+            float e1 = decode_eotf(make_float3(gx, gx, gx), p_Display).x;
+            float e2 = decode_eotf(make_float3(gx + ppx, gx + ppx, gx + ppx), p_Display).x;
+            float c1 = _clampf(lin_to_di(invert_tone(e1, p_Source, dp, p_Black, p_Toe, p_Unroll, p_Contrast)), 0.0f, 1.0f);
+            float c2 = _clampf(lin_to_di(invert_tone(e2, p_Source, dp, p_Black, p_Toe, p_Unroll, p_Contrast)), 0.0f, 1.0f);
 
             float slope = (c2 - c1) / ppx;
             float dist  = _fabs(gy - c1) / _sqrtf(1.0f + slope * slope);

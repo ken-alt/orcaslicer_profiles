@@ -23,10 +23,16 @@ static inline float _sqrtf(float a){return sqrtf(a);} static inline float _fmaxf
 static inline float _fminf(float a,float b){return fminf(a,b);} static inline float _copysignf(float a,float b){return copysignf(a,b);}
 static inline float _clampf(float v,float a,float b){return fminf(fmaxf(v,a),b);}
 static inline float _mix(float a,float b,float t){return a+(b-a)*t;} static inline float _floor(float a){return floorf(a);}
+struct float4 { float x,y,z,w; };
+static inline float4 make_float4(float a,float b,float c,float d){float4 v{a,b,c,d};return v;}
 enum { DSP_709_24, DSP_709_22, DSP_709_SRGB, DSP_709_709, DSP_P3_26, DSP_P3_24, DSP_2020_24, DSP_2020_PQ };
 enum { DST_DWG_LIN, DST_DWG_DI, DST_AP1_CCT, DST_AP0_LIN, DST_709_LIN };
+enum { SRC_PARAM, SRC_TONEMAP };
+enum { DIAG_OFF, DIAG_RECOV };
 static float p_Unroll=0.5f,p_Toe=0.5f,p_Expand=0.5f,p_PHC=0.5f,p_Black=0.0f,p_Contrast=1.0f;
 static int p_ShowCurve=0,p_Display=DSP_709_24,p_Dest=DST_DWG_LIN;
+static int p_Source=SRC_PARAM,p_Diag=DIAG_OFF;
+static float p_Peak=100.0f;
 #include "../Display_Space_IDT.dctl"
 
 int main(){
@@ -38,6 +44,7 @@ int main(){
   for(int bk=0;bk<=2;bk++)for(int c=0;c<=2;c++)for(int d=0;d<8;d++){
     p_Unroll=u/4.0f;p_Toe=t/4.0f;p_Expand=e/4.0f;p_PHC=h/2.0f;
     p_Black=-0.05f+0.075f*bk;p_Contrast=0.5f+0.75f*c;p_Display=d;
+    p_Source=(u+t+e)%2?SRC_TONEMAP:SRC_PARAM;p_Peak=100.0f+900.0f*((bk)%2);
     float prev=-1e30f;
     for(int i=-20;i<=1020;i++){
       float v=i/1000.0f; float3 o=transform(1920,1080,900,500,v,v,v);
@@ -56,6 +63,7 @@ int main(){
     p_Unroll=(rand()%1001)/1000.0f;p_Toe=(rand()%1001)/1000.0f;p_Expand=(rand()%1001)/1000.0f;
     p_PHC=(rand()%1001)/1000.0f;p_Black=-0.05f+0.15f*(rand()%1001)/1000.0f;
     p_Contrast=0.5f+1.5f*(rand()%1001)/1000.0f;p_Display=rand()%8;p_Dest=rand()%5;
+    p_Source=rand()%2;p_Peak=100.0f+(rand()%3901);
     int lineardest = (p_Dest==DST_DWG_LIN||p_Dest==DST_AP0_LIN||p_Dest==DST_709_LIN);
     float r=-0.1f+1.2f*(rand()%1001)/1000.0f,g=-0.1f+1.2f*(rand()%1001)/1000.0f,b=-0.1f+1.2f*(rand()%1001)/1000.0f;
     float3 o=transform(1920,1080,900,500,r,g,b);
@@ -108,6 +116,68 @@ int main(){
   }
   printf("   pixels changed outside panel: %d (expect 0)   inside: %d   %s\n",leak,inside,leak?"FAIL":"PASS");
   fails += (leak!=0);
+
+  printf("\n== F. analytic mode: rev(fwd(x)) == x, the actual inverse property ==\n");
+  {
+    int bad=0; float worst=0, wx=0, wn=0;
+    for(float n=100.0f; n<=4000.0f; n+=325.0f){
+      float4 dp=daniele_params(n);
+      for(int i=0;i<=20000;i++){
+        float x=powf(10.0f,-4.0f+5.0f*i/20000.0f);      // 1e-4 .. 10
+        float y=daniele_fwd(x,dp);
+        if(y>=daniele_ceiling(dp)*(1.0f-1e-5f)) continue;  // no bounded preimage there
+        float r=daniele_rev(y,dp);
+        float rel=fabsf(r-x)/fmaxf(x,1e-9f);
+        if(rel>worst){worst=rel;wx=x;wn=n;}
+        if(rel>1e-3f) bad++;
+      }
+    }
+    printf("   worst relative error %.3e (x=%.5f, peak=%.0f nits)   %s\n",worst,wx,wn,bad?"FAIL":"PASS");
+    fails += (bad!=0);
+    float4 dp=daniele_params(100.0f);
+    printf("   ceiling=%.6f  fwd(1e9)=%.6f  (must match)\n",daniele_ceiling(dp),daniele_fwd(1e9f,dp));
+    printf("   mid grey: fwd(0.18)=%.6f -> %.3f nits ; rev of that = %.6f\n",
+           daniele_fwd(0.18f,dp),daniele_fwd(0.18f,dp)*100.0f,daniele_rev(daniele_fwd(0.18f,dp),dp));
+    printf("   display white 1.0 -> scene %.4f\n", daniele_rev(1.0f,dp));
+  }
+
+  printf("\n== G. full-chain recovery: render a scene signal, then invert it ==\n");
+  {
+    // forward: scene linear (709 primaries) -> Daniele tonescale -> gamma 2.4 code value
+    p_Source=SRC_TONEMAP; p_Peak=100.0f; p_Display=DSP_709_24; p_Dest=DST_709_LIN;
+    p_Unroll=0;p_Toe=0;p_Expand=0;p_PHC=0;p_Black=0;p_Contrast=1;p_ShowCurve=0;p_Diag=DIAG_OFF;
+    float4 dp=daniele_params(100.0f);
+    float worst=0, wscene=0; int bad=0;
+    for(int i=0;i<=4000;i++){
+      float scene=powf(10.0f,-3.0f+4.7f*i/4000.0f);     // 1e-3 .. ~50
+      float disp=daniele_fwd(scene,dp);
+      if(disp>=1.0f) continue;                           // clipped by the display
+      float code=powf(disp,1.0f/2.4f);
+      float3 o=transform(1920,1080,900,500,code,code,code);
+      float rel=fabsf(o.x-scene)/fmaxf(scene,1e-9f);
+      if(rel>worst){worst=rel;wscene=scene;}
+      if(rel>2e-3f) bad++;
+    }
+    printf("   worst relative error recovering the scene signal: %.3e (at %.4f)   %s\n",
+           worst,wscene,bad?"FAIL":"PASS");
+    fails += (bad!=0);
+  }
+
+  printf("\n== H. recoverability diagnostic classifies the lost pixels ==\n");
+  {
+    p_Diag=DIAG_RECOV; p_Dest=DST_709_LIN; p_Source=SRC_PARAM;
+    struct { const char* n; float r,g,b; } t[] = {
+      {"clipped white",1.0f,1.0f,1.0f},{"clipped red channel",1.0f,0.4f,0.2f},
+      {"crushed black",0.0f,0.0f,0.0f},{"mid grey",0.5f,0.5f,0.5f},{"normal skin",0.72f,0.58f,0.5f}};
+    for(int i=0;i<5;i++){
+      float3 o=transform(1920,1080,900,500,t[i].r,t[i].g,t[i].b);
+      const char* lbl = (o.x>0.6f&&o.y<0.1f)?"RED  (unbounded preimage)":
+                        (o.x>0.6f&&o.y>0.3f)?"AMBER(channel clipped)":
+                        (o.z>0.4f&&o.x<0.1f)?"BLUE (crushed black)":"GREY (unique preimage)";
+      printf("   %-20s -> %s\n",t[i].n,lbl);
+    }
+    p_Diag=DIAG_OFF;
+  }
 
   printf("\n%s\n", fails?"=== SOME CHECKS FAILED ===":"=== ALL CHECKS PASSED ===");
   return fails;
