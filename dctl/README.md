@@ -86,9 +86,37 @@ At a 100-nit peak, legal display white recovers to **59.89** scene-linear.
 Values above `SCENE_MAX` (1000) only arise past code value 1.0, where the
 preimage is unbounded anyway.
 
+## Which file
+
+Blackmagic's DCTL spec defines exactly two legal `transform` signatures, and
+only one of them carries pixel coordinates:
+
+```c
+// basic - no coordinates
+__DEVICE__ float3 transform(int p_Width, int p_Height, float p_R, float p_G, float p_B)
+
+// texture - coordinates, pixels via samplers (Resolve Studio)
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y,
+                            __TEXTURE__ p_TexR, __TEXTURE__ p_TexG, __TEXTURE__ p_TexB)
+```
+
+| File | Signature | Show Curve |
+|---|---|---|
+| `Display_Space_IDT.dctl` | basic | no |
+| `Display_Space_IDT_ShowCurve.dctl` | `__TEXTURE__` | yes |
+
+**Start with `Display_Space_IDT.dctl`.** The colour maths is identical in both;
+the variant only adds the overlay, and is *generated* from the basic file by
+`tools/make_showcurve_variant.py` so the two cannot drift. Regenerate after any
+edit to the source file:
+
+```
+python3 tools/make_showcurve_variant.py
+```
+
 ## Install
 
-Copy `Display_Space_IDT.dctl` into Resolve's LUT folder, then right-click the
+Copy the `.dctl` into Resolve's LUT folder, then right-click the
 LUT list in the Color page and choose **Refresh**.
 
 | OS | Path |
@@ -148,6 +176,7 @@ Compiles the DCTL as C++ against a shim emulating the DCTL runtime, so it runs
 without Resolve. Covers: syntax; NaN/Inf and monotonicity across the full
 parameter grid × 8 source spaces × both modes, including sub-black input;
 value blow-ups on random sub-black/super-white colour; hue stability;
-identity bypass; overlay containment; the analytic inverse property
+identity bypass; the analytic inverse property
 `rev(fwd(x)) = x`; end-to-end scene recovery through a synthetic forward
-render; and recoverability classification.
+render; and recoverability classification. The generated `__TEXTURE__` variant
+is regenerated and separately checked for overlay containment.

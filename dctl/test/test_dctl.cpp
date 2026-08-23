@@ -30,7 +30,7 @@ enum { DST_DWG_LIN, DST_DWG_DI, DST_AP1_CCT, DST_AP0_LIN, DST_709_LIN };
 enum { SRC_PARAM, SRC_TONEMAP };
 enum { DIAG_OFF, DIAG_RECOV };
 static float p_Unroll=0.5f,p_Toe=0.5f,p_Expand=0.5f,p_PHC=0.5f,p_Black=0.0f,p_Contrast=1.0f;
-static int p_ShowCurve=0,p_Display=DSP_709_24,p_Dest=DST_DWG_LIN;
+static int p_Display=DSP_709_24,p_Dest=DST_DWG_LIN;
 static int p_Source=SRC_PARAM,p_Diag=DIAG_OFF;
 static float p_Peak=100.0f;
 #include "../Display_Space_IDT.dctl"
@@ -47,7 +47,7 @@ int main(){
     p_Source=(u+t+e)%2?SRC_TONEMAP:SRC_PARAM;p_Peak=100.0f+900.0f*((bk)%2);
     float prev=-1e30f;
     for(int i=-20;i<=1020;i++){
-      float v=i/1000.0f; float3 o=transform(1920,1080,900,500,v,v,v);
+      float v=i/1000.0f; float3 o=transform(1920,1080,v,v,v);
       if(!std::isfinite(o.x)||!std::isfinite(o.y)||!std::isfinite(o.z)){nonfin++;break;}
       if(o.x<prev-1e-5f*fmaxf(1.0f,fabsf(prev))){nonmono++;break;} prev=o.x;
     }
@@ -66,7 +66,7 @@ int main(){
     p_Source=rand()%2;p_Peak=100.0f+(rand()%3901);
     int lineardest = (p_Dest==DST_DWG_LIN||p_Dest==DST_AP0_LIN||p_Dest==DST_709_LIN);
     float r=-0.1f+1.2f*(rand()%1001)/1000.0f,g=-0.1f+1.2f*(rand()%1001)/1000.0f,b=-0.1f+1.2f*(rand()%1001)/1000.0f;
-    float3 o=transform(1920,1080,900,500,r,g,b);
+    float3 o=transform(1920,1080,r,g,b);
     if(!std::isfinite(o.x)||!std::isfinite(o.y)||!std::isfinite(o.z)){ bad++; continue; }
     float mag=fmaxf(fmaxf(fabsf(o.x),fabsf(o.y)),fabsf(o.z));
     float in =fmaxf(fmaxf(fabsf(r),fabsf(g)),fabsf(b));
@@ -84,12 +84,12 @@ int main(){
   float hot[3]={0.99f,0.86f,0.62f};   // warm blown highlight
   for(int i=0;i<3;i++){
     p_PHC=i/2.0f;
-    float3 o=transform(1920,1080,900,500,hot[0],hot[1],hot[2]);
+    float3 o=transform(1920,1080,hot[0],hot[1],hot[2]);
     float mx=fmaxf(fmaxf(o.x,o.y),o.z);
     printf("   PHC=%.1f -> [%7.4f %7.4f %7.4f]  normalised [%.3f %.3f %.3f]\n",
            p_PHC,o.x,o.y,o.z,o.x/mx,o.y/mx,o.z/mx);
   }
-  float3 src=transform(1920,1080,900,500,hot[0]*0.4f,hot[1]*0.4f,hot[2]*0.4f);
+  float3 src=transform(1920,1080,hot[0]*0.4f,hot[1]*0.4f,hot[2]*0.4f);
   float sm=fmaxf(fmaxf(src.x,src.y),src.z);
   printf("   same hue at 40%% exposure (reference ratios): [%.3f %.3f %.3f]\n",src.x/sm,src.y/sm,src.z/sm);
 
@@ -97,35 +97,21 @@ int main(){
   p_Unroll=0;p_Toe=0;p_Expand=0;p_PHC=0;p_Black=0;p_Contrast=1;p_Dest=DST_709_LIN;p_Display=DSP_709_24;
   float maxerr=0;
   for(int i=0;i<=100;i++){ float v=i/100.0f;
-    float3 o=transform(1920,1080,900,500,v,v*0.7f,v*0.4f);
+    float3 o=transform(1920,1080,v,v*0.7f,v*0.4f);
     maxerr=fmaxf(maxerr,fabsf(o.x-powf(v,2.4f)));
   }
   printf("   max |out - v^2.4| = %.3e   %s\n",maxerr,maxerr<1e-5?"PASS":"FAIL");
   fails += (maxerr>=1e-5f);
 
-  printf("\n== E. overlay does not leak outside its panel ==\n");
-  p_ShowCurve=1;p_Dest=DST_DWG_LIN;p_Unroll=0.5f;p_Toe=0.5f;p_Expand=0.5f;p_PHC=0.5f;
-  int leak=0,inside=0;
-  for(int Y=0;Y<1080;Y+=1) for(int X=0;X<1920;X+=1){
-    float3 o=transform(1920,1080,X,Y,0.5f,0.5f,0.5f);
-    bool changed = fabsf(o.x-0.203712f)>1e-4f;
-    float px=(float)X, py=1080.0f-(float)Y, side=0.30f*1920.0f, m=0.03f*1920.0f;
-    bool inpanel = (px>=m&&px<=m+side&&py>=m&&py<=m+side);
-    if(changed&&!inpanel) leak++;
-    if(changed&&inpanel) inside++;
-  }
-  printf("   pixels changed outside panel: %d (expect 0)   inside: %d   %s\n",leak,inside,leak?"FAIL":"PASS");
-  fails += (leak!=0);
-
-  printf("\n== F. analytic mode: rev(fwd(x)) == x, the actual inverse property ==\n");
+  printf("\n== E. analytic mode: rev(fwd(x)) == x, the actual inverse property ==\n");
   {
     int bad=0; float worst=0, wx=0, wn=0;
     for(float n=100.0f; n<=4000.0f; n+=325.0f){
-      float4 dp=daniele_params(n);
+      float3 dp=daniele_params(n);
       for(int i=0;i<=20000;i++){
         float x=powf(10.0f,-4.0f+5.0f*i/20000.0f);      // 1e-4 .. 10
         float y=daniele_fwd(x,dp);
-        if(y>=daniele_ceiling(dp)*(1.0f-1e-5f)) continue;  // no bounded preimage there
+        if(y>=dp.z*(1.0f-1e-5f)) continue;  // no bounded preimage there
         float r=daniele_rev(y,dp);
         float rel=fabsf(r-x)/fmaxf(x,1e-9f);
         if(rel>worst){worst=rel;wx=x;wn=n;}
@@ -134,26 +120,26 @@ int main(){
     }
     printf("   worst relative error %.3e (x=%.5f, peak=%.0f nits)   %s\n",worst,wx,wn,bad?"FAIL":"PASS");
     fails += (bad!=0);
-    float4 dp=daniele_params(100.0f);
-    printf("   ceiling=%.6f  fwd(1e9)=%.6f  (must match)\n",daniele_ceiling(dp),daniele_fwd(1e9f,dp));
+    float3 dp=daniele_params(100.0f);
+    printf("   ceiling=%.6f  fwd(1e9)=%.6f  (must match)\n",dp.z,daniele_fwd(1e9f,dp));
     printf("   mid grey: fwd(0.18)=%.6f -> %.3f nits ; rev of that = %.6f\n",
            daniele_fwd(0.18f,dp),daniele_fwd(0.18f,dp)*100.0f,daniele_rev(daniele_fwd(0.18f,dp),dp));
     printf("   display white 1.0 -> scene %.4f\n", daniele_rev(1.0f,dp));
   }
 
-  printf("\n== G. full-chain recovery: render a scene signal, then invert it ==\n");
+  printf("\n== F. full-chain recovery: render a scene signal, then invert it ==\n");
   {
     // forward: scene linear (709 primaries) -> Daniele tonescale -> gamma 2.4 code value
     p_Source=SRC_TONEMAP; p_Peak=100.0f; p_Display=DSP_709_24; p_Dest=DST_709_LIN;
-    p_Unroll=0;p_Toe=0;p_Expand=0;p_PHC=0;p_Black=0;p_Contrast=1;p_ShowCurve=0;p_Diag=DIAG_OFF;
-    float4 dp=daniele_params(100.0f);
+    p_Unroll=0;p_Toe=0;p_Expand=0;p_PHC=0;p_Black=0;p_Contrast=1;p_Diag=DIAG_OFF;
+    float3 dp=daniele_params(100.0f);
     float worst=0, wscene=0; int bad=0;
     for(int i=0;i<=4000;i++){
       float scene=powf(10.0f,-3.0f+4.7f*i/4000.0f);     // 1e-3 .. ~50
       float disp=daniele_fwd(scene,dp);
       if(disp>=1.0f) continue;                           // clipped by the display
       float code=powf(disp,1.0f/2.4f);
-      float3 o=transform(1920,1080,900,500,code,code,code);
+      float3 o=transform(1920,1080,code,code,code);
       float rel=fabsf(o.x-scene)/fmaxf(scene,1e-9f);
       if(rel>worst){worst=rel;wscene=scene;}
       if(rel>2e-3f) bad++;
@@ -163,14 +149,14 @@ int main(){
     fails += (bad!=0);
   }
 
-  printf("\n== H. recoverability diagnostic classifies the lost pixels ==\n");
+  printf("\n== G. recoverability diagnostic classifies the lost pixels ==\n");
   {
     p_Diag=DIAG_RECOV; p_Dest=DST_709_LIN; p_Source=SRC_PARAM;
     struct { const char* n; float r,g,b; } t[] = {
       {"clipped white",1.0f,1.0f,1.0f},{"clipped red channel",1.0f,0.4f,0.2f},
       {"crushed black",0.0f,0.0f,0.0f},{"mid grey",0.5f,0.5f,0.5f},{"normal skin",0.72f,0.58f,0.5f}};
     for(int i=0;i<5;i++){
-      float3 o=transform(1920,1080,900,500,t[i].r,t[i].g,t[i].b);
+      float3 o=transform(1920,1080,t[i].r,t[i].g,t[i].b);
       const char* lbl = (o.x>0.6f&&o.y<0.1f)?"RED  (unbounded preimage)":
                         (o.x>0.6f&&o.y>0.3f)?"AMBER(channel clipped)":
                         (o.z>0.4f&&o.x<0.1f)?"BLUE (crushed black)":"GREY (unique preimage)";

@@ -27,15 +27,22 @@
 //  the same holds at black clip and where a channel was clamped to the gamut
 //  boundary. Diagnostic > Recoverability marks those pixels.
 //
-//  Signature: the published basic Transform DCTL form
-//    transform(int p_Width, int p_Height, float p_R, float p_G, float p_B)
-//  which carries no pixel coordinates, so the Show Curve overlay lives in the
-//  companion Display_Space_IDT_ShowCurve.dctl built on the __TEXTURE__ form.
+//  Signature: the published __TEXTURE__ Transform DCTL form, which is the
+//  only one carrying pixel coordinates and so the only one that can draw the
+//  Show Curve overlay. Requires DaVinci Resolve Studio. If it will not build,
+//  use Display_Space_IDT.dctl - identical maths, no overlay.
+//
+//  GENERATED from Display_Space_IDT.dctl by tools/make_showcurve_variant.py
+//  Do not edit directly; edit the source file and regenerate.
 //
 //  Node placement: first node of the clip, before any grading.
 //  Set Display Space to match how the footage was mastered, and Destination
 //  Space to your timeline colour space.
 // ---------------------------------------------------------------------------
+
+// Set to 0 if the curve overlay lands in the wrong corner / appears flipped.
+// DCTL's p_Y origin is not documented; flip this if the panel is misplaced.
+#define CURVE_ORIGIN_TOP_LEFT   1
 
 DEFINE_UI_PARAMS(p_Unroll,    Highlight Unroll,        DCTLUI_SLIDER_FLOAT, 0.5, 0.0, 1.0, 0.001)
 DEFINE_UI_PARAMS(p_Toe,       Toe Uncompress,          DCTLUI_SLIDER_FLOAT, 0.5, 0.0, 1.0, 0.001)
@@ -43,6 +50,8 @@ DEFINE_UI_PARAMS(p_Expand,    Gamut Expand,            DCTLUI_SLIDER_FLOAT, 0.5,
 DEFINE_UI_PARAMS(p_PHC,       Preserve Highlight Color,DCTLUI_SLIDER_FLOAT, 0.5, 0.0, 1.0, 0.001)
 DEFINE_UI_PARAMS(p_Black,     Input Black,             DCTLUI_SLIDER_FLOAT, 0.0, -0.05, 0.10, 0.0005)
 DEFINE_UI_PARAMS(p_Contrast,  Input Contrast,          DCTLUI_SLIDER_FLOAT, 1.0, 0.50, 2.00, 0.001)
+
+DEFINE_UI_PARAMS(p_ShowCurve, Show Curve,              DCTLUI_CHECK_BOX, 1)
 
 DEFINE_UI_PARAMS(p_Display,   Display Space,           DCTLUI_COMBO_BOX, 0,
     {DSP_709_24, DSP_709_22, DSP_709_SRGB, DSP_709_709, DSP_P3_26, DSP_P3_24, DSP_2020_24, DSP_2020_PQ},
@@ -442,9 +451,22 @@ __DEVICE__ float3 recoverability(float3 cv)
 }
 
 // ---------------------------------------------------------------------------
+//  curve overlay
+// ---------------------------------------------------------------------------
 
-__DEVICE__ float3 transform(int p_Width, int p_Height, float p_R, float p_G, float p_B)
+__DEVICE__ float line_alpha(float dist, float halfwidth)
 {
+    return _clampf(1.0f - (dist - halfwidth) / _fmaxf(halfwidth, 1e-6f), 0.0f, 1.0f);
+}
+
+// ---------------------------------------------------------------------------
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y,
+                            __TEXTURE__ p_TexR, __TEXTURE__ p_TexG, __TEXTURE__ p_TexB)
+{
+    float p_R = _tex2D(p_TexR, p_X, p_Y);
+    float p_G = _tex2D(p_TexG, p_X, p_Y);
+    float p_B = _tex2D(p_TexB, p_X, p_Y);
     float3 cv = make_float3(p_R, p_G, p_B);
     float3 dp = daniele_params(_fmaxf(p_Peak, 100.0f));
 
@@ -497,6 +519,61 @@ __DEVICE__ float3 transform(int p_Width, int p_Height, float p_R, float p_G, flo
     // ---- diagnostic ---------------------------------------------------------
     if (p_Diag == DIAG_RECOV)
         out = encode_dest(recoverability(cv), p_Dest);
+
+
+    // ---- curve overlay ------------------------------------------------------
+    if (p_ShowCurve)
+    {
+        float pw   = (float)p_Width;
+        float ph   = (float)p_Height;
+        float side = 0.30f * pw;
+        float marg = 0.03f * pw;
+
+        float px = (float)p_X;
+#if CURVE_ORIGIN_TOP_LEFT
+        float py = ph - (float)p_Y;      // measure up from the bottom
+#else
+        float py = (float)p_Y;
+#endif
+        float x0 = marg;
+        float y0 = marg;
+
+        if (px >= x0 && px <= x0 + side && py >= y0 && py <= y0 + side)
+        {
+            float gx = (px - x0) / side;          // input  0..1 display code value
+            float gy = (py - y0) / side;          // output 0..1 (DaVinci Intermediate)
+            float ppx = 1.0f / side;              // one pixel in graph units
+
+            // background + border
+            float3 plot = make_float3(0.015f, 0.015f, 0.015f);
+            float edge = _fminf(_fminf(gx, 1.0f - gx), _fminf(gy, 1.0f - gy));
+            if (edge < 3.0f * ppx) plot = make_float3(0.12f, 0.12f, 0.12f);
+
+            // grid every 0.25
+            float gxm = _fabs(gx * 4.0f - _floor(gx * 4.0f + 0.5f)) / 4.0f;
+            float gym = _fabs(gy * 4.0f - _floor(gy * 4.0f + 0.5f)) / 4.0f;
+            if (gxm < ppx || gym < ppx) plot = make_float3(0.05f, 0.05f, 0.05f);
+
+            // 18% scene grey reference
+            float mid = lin_to_di(0.18f);
+            if (_fabs(gy - mid) < 1.2f * ppx) plot = make_float3(0.10f, 0.09f, 0.05f);
+
+            // the transfer curve itself, plotted in DaVinci Intermediate so the
+            // whole 0..100 scene range is visible
+            float e1 = decode_eotf(make_float3(gx, gx, gx), p_Display).x;
+            float e2 = decode_eotf(make_float3(gx + ppx, gx + ppx, gx + ppx), p_Display).x;
+            float c1 = _clampf(lin_to_di(invert_tone(e1, p_Source, dp, p_Black, p_Toe, p_Unroll, p_Contrast)), 0.0f, 1.0f);
+            float c2 = _clampf(lin_to_di(invert_tone(e2, p_Source, dp, p_Black, p_Toe, p_Unroll, p_Contrast)), 0.0f, 1.0f);
+
+            float slope = (c2 - c1) / ppx;
+            float dist  = _fabs(gy - c1) / _sqrtf(1.0f + slope * slope);
+            float a     = line_alpha(dist, 1.5f * ppx);
+
+            plot = make_float3(_mix(plot.x, 0.9f, a), _mix(plot.y, 0.9f, a), _mix(plot.z, 0.9f, a));
+
+            out = encode_dest(plot, p_Dest);
+        }
+    }
 
     return out;
 }
