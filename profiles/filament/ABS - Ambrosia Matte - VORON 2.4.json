@@ -2,11 +2,11 @@
 	"adaptive_pressure_advance": [
 		"1"
 	],
-	"adaptive_pressure_advance_model": [
-		"0.030,3.79,800\n0.030,7.57,800\n0.035,11.4,800\n0.030,3.79,2000\n0.030,7.57,2000\n0.035,11.4,2000\n0.035,3.79,3500\n0.035,7.57,3500\n0.040,11.4,3500"
+	"adaptive_pressure_advance_bridges": [
+		"0.013"
 	],
-	"adaptive_pressure_advance_overhangs": [
-		"1"
+	"adaptive_pressure_advance_model": [
+		"0.030, 3.786, 1000\n0.030, 7.57, 1000\n0.028, 12.87, 1000\n0.028, 18.17, 1000\n0.028, 3.786, 2000\n0.026, 7.572, 2000\n0.026, 12.87, 2000\n0.024, 18.17, 2000\n0.026, 3.786, 3500\n0.024, 7.572, 3500\n0.024, 12.87, 3500\n0.022, 18.17, 3500"
 	],
 	"close_fan_the_first_x_layers": [
 		"5"
@@ -45,7 +45,7 @@
 		"15"
 	],
 	"filament_density": [
-		"1.05"
+		"1.03"
 	],
 	"filament_deretraction_speed": [
 		"30"
@@ -54,7 +54,7 @@
 		"Direct Drive Standard"
 	],
 	"filament_flow_ratio": [
-		"0.93"
+		"0.94"
 	],
 	"filament_max_volumetric_speed": [
 		"23"
@@ -66,7 +66,7 @@
 		"0"
 	],
 	"filament_retraction_length": [
-		"0.5"
+		"0.8"
 	],
 	"filament_retraction_minimum_travel": [
 		"1"
@@ -76,12 +76,6 @@
 	],
 	"filament_settings_id": [
 		"ABS - Ambrosia Matte - VORON 2.4"
-	],
-	"filament_shrink": [
-		"99.4%"
-	],
-	"filament_shrinkage_compensation_z": [
-		"99.2%"
 	],
 	"filament_vendor": [
 		"Ambrosia"
@@ -126,7 +120,7 @@
 		"75%"
 	],
 	"pressure_advance": [
-		"0.035"
+		"0.026"
 	],
 	"slow_down_layer_time": [
 		"0"
