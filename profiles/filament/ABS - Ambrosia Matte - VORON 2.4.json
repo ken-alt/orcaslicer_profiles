@@ -62,11 +62,14 @@
 	"filament_retract_lift_enforce": [
 		"All Surfaces"
 	],
+	"filament_retract_restart_extra": [
+		"0.05"
+	],
 	"filament_retract_when_changing_layer": [
-		"0"
+		"1"
 	],
 	"filament_retraction_length": [
-		"0.8"
+		"0.4"
 	],
 	"filament_retraction_minimum_travel": [
 		"1"
@@ -77,11 +80,14 @@
 	"filament_settings_id": [
 		"ABS - Ambrosia Matte - VORON 2.4"
 	],
+	"filament_shrink": [
+		"99.5%"
+	],
 	"filament_vendor": [
 		"Ambrosia"
 	],
 	"filament_wipe": [
-		"0"
+		"1"
 	],
 	"filament_wipe_distance": [
 		"0.6"
