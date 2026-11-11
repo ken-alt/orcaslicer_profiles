@@ -1,6 +1,5 @@
 {
 	"bed_custom_model": "/Users/ken/Documents/Prusa Slicer Voron Skin Files/V24_350mm_bed_model.stl",
-	"bed_custom_texture": "/Users/ken/Documents/Prusa Slicer Voron Skin Files/superslicer-bed-plain.png",
 	"before_layer_change_gcode": ";BEFORE_LAYER_CHANGE\n;[layer_z]\nG92 E0",
 	"from": "User",
 	"host_type": "moonraker",
@@ -20,7 +19,7 @@
 	],
 	"name": "Voron 2.4 350 - 0.4 nozzle",
 	"nozzle_type": [
-		"brass"
+		"hardened_steel"
 	],
 	"print_host": "http://voron24.local",
 	"printer_extruder_id": [

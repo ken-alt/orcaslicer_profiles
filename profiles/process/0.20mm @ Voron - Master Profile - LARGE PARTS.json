@@ -17,7 +17,6 @@
 	"dont_filter_internal_bridges": "limited",
 	"elefant_foot_compensation_layers": "2",
 	"enable_prime_tower": "0",
-	"enable_support": "1",
 	"ensure_vertical_shell_thickness": "ensure_moderate",
 	"extra_perimeters_on_overhangs": "1",
 	"filename_format": "{input_filename_base} - {plate_name} - {filament_type[0]} - {print_time}.gcode",
